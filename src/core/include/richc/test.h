@@ -14,7 +14,8 @@
  * --------------------
  *   RC_TEST_GROUP_DATA(group) { ... };       declare the per-group fixture struct
  *   RC_TEST_GROUP_INIT(group, fix) { ... }   runs before each test in the group
- *   RC_TEST_GROUP_DEINIT(group, fix) { ... } runs after each test in the group
+ *   RC_TEST_GROUP_DEINIT(group, fix) { ... } runs after each test in the group,
+ *                                            failed ones included
  *   RC_TEST_STEP(group, name, fix) { ... }   a test that receives the fixture
  *   RC_TEST_STEP_SKIP(group, name, fix)      registered fixtured test, not run
  * The last argument to INIT/DEINIT/STEP names the fixture pointer made available
@@ -40,7 +41,8 @@
  *                                         with filter ("" runs everything);
  *                                         returns the number of failures.
  *   RC_TEST_MAIN()                        emit a main() that calls rc_test_run
- *                                         with the first argument as the filter.
+ *                                         with the first argument as the filter,
+ *                                         exiting 1 on any failure (0 otherwise).
  */
 
 #ifndef RC_TEST_H_
@@ -206,7 +208,7 @@ int rc_test_run(const char *filter);
 
 #define RC_TEST_MAIN() \
     int main(int argc, char **argv) { \
-        return rc_test_run(argc > 1 ? argv[1] : ""); \
+        return rc_test_run(argc > 1 ? argv[1] : "") != 0; \
     }
 
 #endif /* RC_TEST_H_ */

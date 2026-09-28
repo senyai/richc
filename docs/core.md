@@ -1408,13 +1408,13 @@ Windows (MSVC, clang, gcc) and Linux (clang, gcc).
 | `RC_TEST(group, name) { ... }` | define a test, labelled `group.name` (bare identifiers); the body is the test function |
 | `RC_TEST_SKIP(group, name) { ... }` | registered but not run; reported SKIP |
 | `RC_TEST_GROUP_DATA(group) { ... };` | declare the per-group fixture struct |
-| `RC_TEST_GROUP_INIT(group, fix) { ... }`<br>`RC_TEST_GROUP_DEINIT(group, fix) { ... }` | run before / after each fixtured test in the group; `fix` names the fixture pointer |
+| `RC_TEST_GROUP_INIT(group, fix) { ... }`<br>`RC_TEST_GROUP_DEINIT(group, fix) { ... }` | run before / after each fixtured test in the group; `fix` names the fixture pointer. DEINIT also runs after a failed test (if its INIT completed), so the next test starts clean |
 | `RC_TEST_STEP(group, name, fix) { ... }` | a test that receives the fixture |
 | `RC_TEST_STEP_SKIP(group, name, fix)` | registered fixtured test, not run |
 | `RC_CHECK(a, op, b)` | assert `a op b`; the left operand selects the comparison via `_Generic` (see below) |
 | `RC_CHECK_TRUE(a)`<br>`RC_CHECK_FALSE(a)` | assert truthy / falsy |
 | `rc_test_run(filter) -> int` | run every test whose group name starts with `filter` (`""` for all); prints per-test lines and a summary, returns the failure count |
-| `RC_TEST_MAIN()` | emit a `main` calling `rc_test_run` with the first command-line argument as the filter; place once per test executable |
+| `RC_TEST_MAIN()` | emit a `main` calling `rc_test_run` with the first command-line argument as the filter; exits 1 if any test failed, 0 otherwise; place once per test executable |
 
 `RC_CHECK` operand types and operators:
 

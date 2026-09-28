@@ -32,7 +32,22 @@
 RC_TEST_GROUP_DATA(gfx_gl) {
     rc_arena arena;
     rc_arena frame;
+    bool gfx_live;   // set between gfx_start and gfx_stop
 };
+
+/* Initialise gfx, noting it so deinit can tidy up after a failed test. */
+static void gfx_start(struct rc_test_group_data_gfx_gl *fix, const rc_gfx_desc *desc)
+{
+    rc_gfx_init(desc);
+    fix->gfx_live = true;
+}
+
+/* Shut gfx down again at the end of a passing test. */
+static void gfx_stop(struct rc_test_group_data_gfx_gl *fix)
+{
+    rc_gfx_shutdown();
+    fix->gfx_live = false;
+}
 
 RC_TEST_GROUP_INIT(gfx_gl, fix)
 {
@@ -47,6 +62,11 @@ RC_TEST_GROUP_INIT(gfx_gl, fix)
 
 RC_TEST_GROUP_DEINIT(gfx_gl, fix)
 {
+    // a failed check skips the test's own gfx_stop, so we mop up here while
+    // the context is still current, or the next rc_gfx_init would trip
+    if (fix->gfx_live) {
+        gfx_stop(fix);
+    }
     rc_arena_deinit(&fix->frame);
     rc_arena_deinit(&fix->arena);
     rc_app_destroy();
@@ -92,7 +112,7 @@ static void run_clear_frame(rc_arena *frame, rc_vec4f linear)
 
 RC_TEST_STEP(gfx_gl, device_queries, fix)
 {
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
 
     RC_CHECK((uint32_t)rc_gfx_swapchain_format(), ==, (uint32_t)RC_GFX_TEXTURE_FORMAT_RGBA8_SRGB);
     rc_gfx_features features = rc_gfx_features_query();
@@ -115,26 +135,26 @@ RC_TEST_STEP(gfx_gl, device_queries, fix)
     RC_CHECK_FALSE(rc_gfx_format_caps_query(RC_GFX_TEXTURE_FORMAT_RGBA32_UINT) & RC_GFX_FORMAT_CAP_FILTER);
     RC_CHECK(rc_gfx_backend_name(), ==, RC_STR("OpenGL 3.3"));
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, clear_srgb_readback, fix)
 {
     // linear 0.5 must present as 188: 0.5 -> 0.7354 encoded -> 187.5.  A
     // result of 128 means the encode is missing entirely.
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
     run_clear_frame(&fix->frame, rc_vec4f_make(0.5f, 0.5f, 0.5f, 1.0f));
     uint32_t px = read_window_pixel(128, 128);
     RC_CHECK_TRUE(near_u8(channel_r(px), 188, 2));
     RC_CHECK_TRUE(near_u8(channel_g(px), 188, 2));
     RC_CHECK_TRUE(near_u8(channel_b(px), 188, 2));
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, clear_linear_readback, fix)
 {
     // LINEAR colour space: no encode anywhere, 0.5 -> 128 (the bit-exact path)
-    rc_gfx_init(&(rc_gfx_desc) {
+    gfx_start(fix, &(rc_gfx_desc) {
         .arena = &fix->arena,
         .color_space = RC_GFX_COLOR_SPACE_LINEAR,
     });
@@ -142,7 +162,7 @@ RC_TEST_STEP(gfx_gl, clear_linear_readback, fix)
     run_clear_frame(&fix->frame, rc_vec4f_make(0.5f, 0.5f, 0.5f, 1.0f));
     uint32_t px = read_window_pixel(128, 128);
     RC_CHECK_TRUE(near_u8(channel_r(px), 128, 1));
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 /* A pipeline drawing a solid colour over the whole clip space, no bindings. */
@@ -197,7 +217,7 @@ RC_TEST_STEP(gfx_gl, scissored_draw_top_left, fix)
     // the design's M0 acceptance criterion: painting the canonical top-left
     // quadrant must land in the top-left of the window, validating the whole
     // y chain (rc_clip negation, FBO, pass-through scissor, present flip)
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
     rc_gfx_shader shader = {0};
     rc_gfx_pipeline_layout layout = {0};
     rc_gfx_pipeline pip = make_solid_pipeline(&shader, &layout, rc_gfx_swapchain_format(),
@@ -224,14 +244,14 @@ RC_TEST_STEP(gfx_gl, scissored_draw_top_left, fix)
     RC_CHECK(channel_r(read_window_pixel(size.x - 4, 4)), ==, 0);                // top-right: background
     RC_CHECK(channel_r(read_window_pixel(size.x - 4, size.y - 4)), ==, 0);       // bottom-right: background
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, triangle_uniforms, fix)
 {
     // the hello-triangle path end to end: vertex pulling, the uniform ring
     // with a dynamic offset, and the canonical orientation (apex at the top)
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
 
     typedef struct vertex {
         rc_vec2f pos;
@@ -357,7 +377,7 @@ RC_TEST_STEP(gfx_gl, triangle_uniforms, fix)
     RC_CHECK(rc_genpool_handle_index(replacement.h), ==, rc_genpool_handle_index(vbuf.h));
     RC_CHECK(rc_genpool_handle_gen(replacement.h), ==, rc_genpool_handle_gen(vbuf.h) + 1);
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, texture_decode_before_filter, fix)
@@ -365,7 +385,7 @@ RC_TEST_STEP(gfx_gl, texture_decode_before_filter, fix)
     // a 2x1 sRGB texture with texels 0 and 255, sampled with linear filtering
     // at u = 0.5: correct hardware decode-before-filter averages the LINEAR
     // values and presents ~188; filtering encoded values would present ~128
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
 
     static const uint8_t texels[8] = {0, 0, 0, 255, 255, 255, 255, 255};
     rc_gfx_texture tex = rc_gfx_texture_make(&(rc_gfx_texture_desc) {
@@ -456,7 +476,7 @@ RC_TEST_STEP(gfx_gl, texture_decode_before_filter, fix)
     uint32_t px = read_window_pixel(128, 128);
     RC_CHECK_TRUE(near_u8(channel_r(px), 188, 3));
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, offscreen_depth_reverse_z, fix)
@@ -464,7 +484,7 @@ RC_TEST_STEP(gfx_gl, offscreen_depth_reverse_z, fix)
     // reverse-Z on an offscreen target: clear depth to 0, GREATER_EQUAL
     // compare, draw red near (depth 0.75) then green far (depth 0.25); the
     // far draw must be rejected.  The result is sampled into the swapchain.
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
 
     rc_gfx_texture color = rc_gfx_texture_make(&(rc_gfx_texture_desc) {
         .format = RC_GFX_TEXTURE_FORMAT_RGBA8_UNORM,
@@ -667,7 +687,7 @@ RC_TEST_STEP(gfx_gl, offscreen_depth_reverse_z, fix)
     RC_CHECK(channel_r(px), ==, 255);
     RC_CHECK(channel_g(px), ==, 0);
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, swapchain_depth_reverse_z, fix)
@@ -676,7 +696,7 @@ RC_TEST_STEP(gfx_gl, swapchain_depth_reverse_z, fix)
     // draw red near (0.75) then green far (0.25) straight to target {0}; the
     // far draw must be rejected by the reverse-Z GREATER_EQUAL test, with no
     // offscreen target or blit pass involved
-    rc_gfx_init(&(rc_gfx_desc) {
+    gfx_start(fix, &(rc_gfx_desc) {
         .arena = &fix->arena,
         .swapchain_depth_format = RC_GFX_TEXTURE_FORMAT_DEPTH32F,
     });
@@ -792,14 +812,14 @@ RC_TEST_STEP(gfx_gl, swapchain_depth_reverse_z, fix)
     RC_CHECK(channel_r(px), ==, 255);
     RC_CHECK(channel_g(px), ==, 0);
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, msaa_resolve, fix)
 {
     // a 4x MSAA target cleared to solid red resolves (STORE_OP_RESOLVE)
     // into a single-sample texture, which is then sampled into the swapchain
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
 
     rc_gfx_texture msaa = rc_gfx_texture_make(&(rc_gfx_texture_desc) {
         .format = RC_GFX_TEXTURE_FORMAT_RGBA8_UNORM,
@@ -911,14 +931,14 @@ RC_TEST_STEP(gfx_gl, msaa_resolve, fix)
     RC_CHECK(channel_r(px), ==, 255);
     RC_CHECK(channel_g(px), ==, 0);
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, instanced_quads, fix)
 {
     // per-instance attributes with a divisor: two instances of one quad at
     // different offsets and colours from a second, per-instance buffer
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
 
     typedef struct instance {
         rc_vec2f offset;
@@ -1012,14 +1032,14 @@ RC_TEST_STEP(gfx_gl, instanced_quads, fix)
     RC_CHECK(channel_r(centre), ==, 0);
     RC_CHECK(channel_g(centre), ==, 0);
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, storage_buffer_tbo, fix)
 {
     // STORAGE_BUFFER_READ through the GL 3.3 TBO path: a float buffer read
     // with the portable RC_STORAGE_LOAD macro (texelFetch on a samplerBuffer)
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
 
     static const float values[3] = {1.0f, 0.5f, 0.0f};
     rc_gfx_buffer sbuf = rc_gfx_buffer_make(&(rc_gfx_buffer_desc) {
@@ -1102,14 +1122,14 @@ RC_TEST_STEP(gfx_gl, storage_buffer_tbo, fix)
     RC_CHECK_TRUE(near_u8(channel_g(px), 188, 3));
     RC_CHECK(channel_b(px), ==, 0);
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, texture_from_image, fix)
 {
     // the rc_image bridge: an RGB8 image widens to RGBA on upload; a solid
     // orange texture drawn to the swapchain presents its sRGB bytes
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
 
     // packed 0xAABBGGRR: sRGB orange (255, 128, 0)
     rc_image img = rc_image_make_filled(rc_vec2i_make(4, 4), RC_PIXEL_FORMAT_RGB8, 0xFF0080FFu, &fix->arena);
@@ -1184,7 +1204,7 @@ RC_TEST_STEP(gfx_gl, texture_from_image, fix)
     RC_CHECK_TRUE(near_u8(channel_g(px), 128, 2));
     RC_CHECK_TRUE(near_u8(channel_b(px), 0, 1));
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }
 
 RC_TEST_STEP(gfx_gl, swapchain_resize, fix)
@@ -1192,7 +1212,7 @@ RC_TEST_STEP(gfx_gl, swapchain_resize, fix)
     // window resizes recreate the swapchain target between frames; GL reuses
     // freed object names, so the state shadow must not treat the recreated
     // texture as already bound (this trapped with an incomplete FBO once)
-    rc_gfx_init(&(rc_gfx_desc) {.arena = &fix->arena});
+    gfx_start(fix, &(rc_gfx_desc) {.arena = &fix->arena});
     run_clear_frame(&fix->frame, rc_vec4f_make(1.0f, 0.0f, 0.0f, 1.0f));
 
     // shrink: the present draw covers the bottom-left of the window in GL
@@ -1222,5 +1242,5 @@ RC_TEST_STEP(gfx_gl, swapchain_resize, fix)
     uint32_t full = read_window_pixel(128, 128);
     RC_CHECK(channel_b(full), ==, 255);
 
-    rc_gfx_shutdown();
+    gfx_stop(fix);
 }

@@ -315,16 +315,22 @@ int rc_test_run(const char *filter_string)
             count, total, (int)group.len, group.data, (int)name.len, name.data, padding, ":");
 
         if (t->fn || t->step_fn) {
+
+            // set once init has succeeded, so a failing test still tears its
+            // fixture down; volatile because it must survive the longjmp
+            volatile bool owes_deinit = false;
             if (!setjmp(rc_test_jmp)) {
                 if (t->init_fn) {
                     t->init_fn(t->context);
                 }
+                owes_deinit = t->deinit_fn != NULL;
                 if (t->context) {
                     t->step_fn(t->context);
                 }
                 else {
                     t->fn();
                 }
+                owes_deinit = false;
                 if (t->deinit_fn) {
                     t->deinit_fn(t->context);
                 }
@@ -332,6 +338,13 @@ int rc_test_run(const char *filter_string)
                 num_pass++;
             }
             else {
+
+                // cleared before the call: a failing deinit longjmps back here
+                // and must not be run a second time
+                if (owes_deinit) {
+                    owes_deinit = false;
+                    t->deinit_fn(t->context);
+                }
                 num_fail++;
             }
         }
